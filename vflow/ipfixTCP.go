@@ -25,93 +25,141 @@ package main
 import (
 	"bytes"
 	"net"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/bidansinha/vflow/ipfix"
+	"fmt"
+	"log"
 	"github.com/bidansinha/vflow/producer"
+	"github.com/bidansinha/vflow/TCPServer"
+	//"encoding/binary"
+	//"github.com/kshvakov/clickhouse/lib/protocol"
 )
 
 // IPFIX represents IPFIX collector
-type IPFIX struct {
+type IPFIXTCP struct {
 	port    int
 	addr    string
 	workers int
 	stop    bool
-	stats   IPFIXStats
+	stats   IPFIXTCPStats
 	pool    chan chan struct{}
 }
 
 // IPFIXUDPMsg represents IPFIX UDP data
-type IPFIXUDPMsg struct {
-	raddr *net.UDPAddr
+type IPFIXTCPMsg struct {
+	raddr *net.TCPAddr
 	body  []byte
 }
 
 // IPFIXStats represents IPFIX stats
-type IPFIXStats struct {
-	UDPQueue       int
-	UDPMirrorQueue int
+type IPFIXTCPStats struct {
+	TCPQueue       int
+	TCPMirrorQueue int
 	MessageQueue   int
-	UDPCount       uint64
+	TCPCount       uint64
 	DecodedCount   uint64
 	MQErrorCount   uint64
 	Workers        int32
 }
 
 var (
-	ipfixUDPCh         = make(chan IPFIXUDPMsg, 1000)
-	ipfixMCh           = make(chan IPFIXUDPMsg, 1000)
-	ipfixMQCh          = make(chan []byte, 1000)
-	ipfixMirrorEnabled bool
+	ipfixTCPCh         	  = make(chan IPFIXTCPMsg, 1000)
+	ipfixTCPMCh           = make(chan IPFIXTCPMsg, 1000)
+	ipfixTCPMQCh          = make(chan []byte, 1000)
+	ipfixTCPMirrorEnabled bool
 
 	// templates memory cache
-	mCache ipfix.MemCache
+	mCacheTCP ipfix.MemCache
 
 	// ipfix udp payload pool
-	ipfixBuffer = &sync.Pool{
+	ipfixTCPBuffer = &sync.Pool{
 		New: func() interface{} {
-			return make([]byte, opts.IPFIXUDPSize)
+			return make([]byte, opts.IPFIXTCPSize)
 		},
 	}
 )
 
 // NewIPFIX constructs IPFIX
-func NewIPFIX() *IPFIX {
-	return &IPFIX{
-		port:    opts.IPFIXPort,
-		workers: opts.IPFIXWorkers,
+func NewIPFIXTCP() *IPFIXTCP {
+	return &IPFIXTCP{
+		port:    opts.IPFIXTCPPort,
+		workers: opts.IPFIXTCPWorkers,
 		pool:    make(chan chan struct{}, maxWorkers),
 	}
 }
 
-func (i *IPFIX) run() {
+func (i *IPFIXTCP) run() {
 	// exit if the ipfix is disabled
-	if !opts.IPFIXEnabled {
-		logger.Println("ipfix has been disabled")
+	if !opts.IPFIXTCPEnabled {
+		logger.Println("ipfixTCP has been disabled")
 		return
 	}
 
-	hostPort := net.JoinHostPort(i.addr, strconv.Itoa(i.port))
-	udpAddr, _ := net.ResolveUDPAddr("udp", hostPort)
+	connectionString := fmt.Sprintf("%s:%d","0.0.0.0", i.port);
+	//connectionString := fmt.Sprintf("%s:%d","localhost", i.port);
+	server := tcp_server.New(connectionString);
 
-	conn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		logger.Fatal(err)
-	}
+	server.OnNewClient(func(c *tcp_server.Client) {
+		// new client connected
+		// lets send some message
+		log.Println(c.Conn().RemoteAddr().String(), " open ");
+
+	})
+	server.OnNewMessage(func(c *tcp_server.Client, message string) {
+		// new message received
+
+		log.Println(c.Conn().RemoteAddr().String(), message);
+		raddr, err := net.ResolveTCPAddr("tcp",c.Conn().RemoteAddr().String());
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		arr := []byte(message)
+		ipfixTCPCh <- IPFIXTCPMsg{raddr, arr}
+
+	})
+
+	server.OnNewMessages(func(c *tcp_server.Client, buf [] byte, size int) {
+		log.Println("message for ", c.Conn().RemoteAddr().String(), buf);
+		raddr, err := net.ResolveTCPAddr("tcp",c.Conn().RemoteAddr().String());
+		if err != nil {
+			log.Fatal(err)
+		}
+		if(size <= 33)  {
+			c.Close()
+			return
+		}
+
+		ipfixTCPCh <- IPFIXTCPMsg{raddr, buf[34:]}
+	})
+
+	server.OnClientConnectionClosed(func(c *tcp_server.Client, err error) {
+		// connection with client lost
+		log.Println(c.Conn().RemoteAddr().String(), " closed ");
+	})
+
+
+	//protocol := &tcp.DefaultProtocol{}
+	//protocol.SetMaxPacketSize(10000)
+
+
+	//srv := tcp.NewAsyncTCPServer(connectionString, &callback{}, protocol)
+
+
 
 	atomic.AddInt32(&i.stats.Workers, int32(i.workers))
 	for n := 0; n < i.workers; n++ {
 		go func() {
 			wQuit := make(chan struct{})
 			i.pool <- wQuit
-			i.ipfixWorker(wQuit)
+			i.ipfixTCPWorker(wQuit)
 		}()
 	}
 
-	logger.Printf("ipfix is running (UDP: listening on [::]:%d workers#: %d)", i.port, i.workers)
+	logger.Printf("ipfix TCP is running (TCP: listening on [::]:%d workers#: %d)", i.port, i.workers)
 
 	mCache = ipfix.GetCache(opts.IPFIXTplCacheFile)
 	go ipfix.RPC(mCache, &ipfix.RPCConfig{
@@ -119,7 +167,7 @@ func (i *IPFIX) run() {
 		Logger:  logger,
 	})
 
-	go mirrorIPFIXDispatcher(ipfixMCh)
+	//go mirrorIPFIXDispatcher(ipfixMCh)
 
 	go func() {
 		p := producer.NewProducer(opts.MQName)
@@ -135,38 +183,30 @@ func (i *IPFIX) run() {
 		}
 	}()
 
+	// External IP Source IP/ dump
 	go func() {
 		if !opts.DynWorkers {
 			logger.Println("IPFIX dynamic worker disabled")
 			return
 		}
 
-		i.dynWorkers()
+		i.dynTCPWorkers()
 	}()
 
-	for !i.stop {
-		b := ipfixBuffer.Get().([]byte)
-		conn.SetReadDeadline(time.Now().Add(1e9))
-		n, raddr, err := conn.ReadFromUDP(b)
-		if err != nil {
-			continue
-		}
-		atomic.AddUint64(&i.stats.UDPCount, 1)
-		ipfixUDPCh <- IPFIXUDPMsg{raddr, b[:n]}
-	}
-
+	server.Listen()
 }
 
-func (i *IPFIX) shutdown() {
+
+func (i *IPFIXTCP) shutdown() {
 	// exit if the ipfix is disabled
-	if !opts.IPFIXEnabled {
-		logger.Println("ipfix disabled")
+	if !opts.IPFIXTCPEnabled {
+		logger.Println("ipfix TCP disabled")
 		return
 	}
 
 	// stop reading from UDP listener
 	i.stop = true
-	logger.Println("stopping ipfix service gracefully ...")
+	logger.Println("stopping ipfix tcp service gracefully ...")
 	time.Sleep(1 * time.Second)
 
 	// dump the templates to storage
@@ -175,15 +215,18 @@ func (i *IPFIX) shutdown() {
 	}
 
 	// logging and close UDP channel
-	logger.Println("ipfix has been shutdown")
-	close(ipfixUDPCh)
+	logger.Println("ipfix tcp has been shutdown")
+	close(ipfixTCPCh)
+	close(ipfixTCPMCh)
+	close(ipfixTCPMQCh)
+
 }
 
-func (i *IPFIX) ipfixWorker(wQuit chan struct{}) {
+func (i *IPFIXTCP) ipfixTCPWorker (wQuit chan struct{}) {
 	var (
 		decodedMsg *ipfix.Message
-		mirror     IPFIXUDPMsg
-		msg        = IPFIXUDPMsg{body: ipfixBuffer.Get().([]byte)}
+		mirror     IPFIXTCPMsg
+		msg        = IPFIXTCPMsg{body: ipfixTCPBuffer.Get().([]byte)}
 		buf        = new(bytes.Buffer)
 		err        error
 		ok         bool
@@ -193,13 +236,13 @@ func (i *IPFIX) ipfixWorker(wQuit chan struct{}) {
 LOOP:
 	for {
 
-		ipfixBuffer.Put(msg.body[:opts.IPFIXUDPSize])
+		ipfixTCPBuffer.Put(msg.body[:opts.IPFIXTCPSize])
 		buf.Reset()
 
 		select {
 		case <-wQuit:
 			break LOOP
-		case msg, ok = <-ipfixUDPCh:
+		case msg, ok = <-ipfixTCPCh:
 			if !ok {
 				break LOOP
 			}
@@ -210,20 +253,22 @@ LOOP:
 				msg.raddr, len(msg.body))
 		}
 
-		if ipfixMirrorEnabled {
-			mirror.body = ipfixBuffer.Get().([]byte)
+		fmt.Println(msg)
+
+		if ipfixTCPMirrorEnabled {
+			mirror.body = ipfixTCPBuffer.Get().([]byte)
 			mirror.raddr = msg.raddr
 			mirror.body = append(mirror.body[:0], msg.body...)
 
 			select {
-			case ipfixMCh <- mirror:
+			case ipfixTCPMCh <- mirror:
 			default:
 			}
 		}
 
 		d := ipfix.NewDecoder(msg.raddr.IP, msg.body)
 		if decodedMsg, err = d.Decode(mCache); err != nil {
-			logger.Println(err)
+			logger.Println("Error 11 " ,err)
 			// in case ipfix message header couldn't decode
 			if decodedMsg == nil {
 				continue
@@ -252,19 +297,19 @@ LOOP:
 	}
 }
 
-func (i *IPFIX) status() *IPFIXStats {
-	return &IPFIXStats{
-		UDPQueue:       len(ipfixUDPCh),
-		UDPMirrorQueue: len(ipfixMCh),
-		MessageQueue:   len(ipfixMQCh),
-		UDPCount:       atomic.LoadUint64(&i.stats.UDPCount),
+func (i *IPFIXTCP) status() *IPFIXTCPStats {
+	return &IPFIXTCPStats{
+		TCPQueue:       len(ipfixTCPCh),
+		TCPMirrorQueue: len(ipfixTCPMCh),
+		MessageQueue:   len(ipfixTCPMQCh),
+		TCPCount:       atomic.LoadUint64(&i.stats.TCPCount ),
 		DecodedCount:   atomic.LoadUint64(&i.stats.DecodedCount),
 		MQErrorCount:   atomic.LoadUint64(&i.stats.MQErrorCount),
 		Workers:        atomic.LoadInt32(&i.stats.Workers),
 	}
 }
 
-func (i *IPFIX) dynWorkers() {
+func (i *IPFIXTCP) dynTCPWorkers() {
 	var load, nSeq, newWorkers, workers, n int
 
 	tick := time.Tick(120 * time.Second)
@@ -275,7 +320,7 @@ func (i *IPFIX) dynWorkers() {
 
 		for n = 0; n < 30; n++ {
 			time.Sleep(1 * time.Second)
-			load += len(ipfixUDPCh)
+			load += len(ipfixTCPCh)
 		}
 
 		if load > 15 {
@@ -302,7 +347,7 @@ func (i *IPFIX) dynWorkers() {
 					atomic.AddInt32(&i.stats.Workers, 1)
 					wQuit := make(chan struct{})
 					i.pool <- wQuit
-					i.ipfixWorker(wQuit)
+					i.ipfixTCPWorker(wQuit)
 				}()
 			}
 

@@ -37,6 +37,7 @@ tools:
 	go get github.com/alecthomas/gocyclo
 
 depends:
+	git clone https://github.com/bidansinha/TCPServer.git
 	go get -d ./...
 
 build: depends

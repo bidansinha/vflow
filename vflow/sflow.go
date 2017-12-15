@@ -31,9 +31,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/VerizonDigital/vflow/packet"
-	"github.com/VerizonDigital/vflow/producer"
-	"github.com/VerizonDigital/vflow/sflow"
+	"github.com/bidansinha/vflow/packet"
+	"github.com/bidansinha/vflow/producer"
+	"github.com/bidansinha/vflow/sflow"
 )
 
 // SFUDPMsg represents sFlow UDP message

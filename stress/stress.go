@@ -29,7 +29,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/VerizonDigital/vflow/stress/hammer"
+	"github.com/bidansinha/vflow/stress/hammer"
 )
 
 var opts = struct {
@@ -39,17 +39,22 @@ var opts = struct {
 	ipfixTick      string
 	ipfixRateLimit int
 	sflowRateLimit int
+	ipfixTCPPort	int
 }{
 	"127.0.0.1",
-	4739,
+	4700,
 	6343,
 	"10s",
 	25000,
 	25000,
+	4739,
 }
 
 func init() {
 	flag.IntVar(&opts.ipfixPort, "ipfix-port", opts.ipfixPort, "ipfix port number")
+	flag.IntVar(&opts.ipfixTCPPort, "ipfixtcp-port", opts.ipfixPort, "ipfix TCP port number")
+
+
 	flag.IntVar(&opts.sflowPort, "sflow-port", opts.sflowPort, "sflow port number")
 	flag.StringVar(&opts.ipfixTick, "ipfix-interval", opts.ipfixTick, "ipfix template interval in seconds")
 	flag.IntVar(&opts.ipfixRateLimit, "ipfix-rate-limit", opts.ipfixRateLimit, "ipfix rate limit packets per second")
@@ -70,6 +75,20 @@ func main() {
 		var err error
 		defer wg.Done()
 		ipfix, _ := hammer.NewIPFIX(vflow)
+		ipfix.Port = opts.ipfixPort
+		ipfix.Tick, err = time.ParseDuration(opts.ipfixTick)
+		ipfix.RateLimit = opts.ipfixRateLimit
+		if err != nil {
+			log.Fatal(err)
+		}
+		ipfix.Run()
+	}()
+
+	wg.Add(1)
+	go func() {
+		var err error
+		defer wg.Done()
+		ipfix, _ := hammer.NewIPFIXTCP(opts.vflowAddr, opts.ipfixTCPPort, vflow)
 		ipfix.Port = opts.ipfixPort
 		ipfix.Tick, err = time.ParseDuration(opts.ipfixTick)
 		ipfix.RateLimit = opts.ipfixRateLimit

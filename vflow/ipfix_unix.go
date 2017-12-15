@@ -23,7 +23,7 @@
 package main
 
 import (
-	"github.com/VerizonDigital/vflow/mirror"
+	"github.com/bidansinha/vflow/mirror"
 
 	"net"
 )

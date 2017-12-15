@@ -76,6 +76,14 @@ type Options struct {
 	IPFIXMirrorWorkers int    `yaml:"ipfix-mirror-workers"`
 	IPFIXTplCacheFile  string `yaml:"ipfix-tpl-cache-file"`
 
+	// IPFIX TCP options
+	IPFIXTCPEnabled       bool   `yaml:"ipfix-enabled"`
+	IPFIXTCPRPCEnabled    bool   `yaml:"ipfix-rpc-enabled"`
+	IPFIXTCPPort          int    `yaml:"ipfix-port"`
+	IPFIXTCPSize       	int    `yaml:"ipfix-tcp-size"`
+	IPFIXTCPWorkers       int    `yaml:"ipfix-workers"`
+
+
 	// Netflow
 	NetflowV9Enabled      bool   `yaml:"netflow9-enabled"`
 	NetflowV9Port         int    `yaml:"netflow9-port"`
@@ -109,15 +117,15 @@ func NewOptions() *Options {
 		StatsHTTPPort: "8081",
 		StatsHTTPAddr: "",
 
-		SFlowEnabled: true,
+		SFlowEnabled: false,
 		SFlowPort:    6343,
 		SFlowUDPSize: 1500,
 		SFlowWorkers: 200,
 		SFlowTopic:   "vflow.sflow",
 
-		IPFIXEnabled:       true,
+		IPFIXEnabled:       false,
 		IPFIXRPCEnabled:    true,
-		IPFIXPort:          4739,
+		IPFIXPort:          4700,
 		IPFIXUDPSize:       1500,
 		IPFIXWorkers:       200,
 		IPFIXTopic:         "vflow.ipfix",
@@ -126,7 +134,7 @@ func NewOptions() *Options {
 		IPFIXMirrorWorkers: 5,
 		IPFIXTplCacheFile:  "/tmp/vflow.templates",
 
-		NetflowV9Enabled:      true,
+		NetflowV9Enabled:      false,
 		NetflowV9Port:         4729,
 		NetflowV9UDPSize:      1500,
 		NetflowV9Workers:      200,
@@ -135,6 +143,14 @@ func NewOptions() *Options {
 
 		MQName:       "kafka",
 		MQConfigFile: "/etc/vflow/mq.conf",
+
+
+		IPFIXTCPEnabled:       true,
+		IPFIXTCPRPCEnabled:    false,
+		IPFIXTCPPort:          4739,
+		IPFIXTCPSize:		1500,
+		IPFIXTCPWorkers:       200,
+
 	}
 }
 
@@ -281,6 +297,14 @@ func (opts *Options) vFlowFlagSet() {
 	flag.StringVar(&opts.IPFIXMirrorAddr, "ipfix-mirror-addr", opts.IPFIXMirrorAddr, "IPFIX mirror destination address")
 	flag.IntVar(&opts.IPFIXMirrorPort, "ipfix-mirror-port", opts.IPFIXMirrorPort, "IPFIX mirror destination port number")
 	flag.IntVar(&opts.IPFIXMirrorWorkers, "ipfix-mirror-workers", opts.IPFIXMirrorWorkers, "IPFIX mirror workers number")
+
+	// ipfix TCP options
+	// ipfix options
+	flag.BoolVar(&opts.IPFIXEnabled, "ipfixtcp-enabled", opts.IPFIXEnabled, "enable/disable IPFIX tcp listener")
+	flag.BoolVar(&opts.IPFIXRPCEnabled, "ipfixtcp-rpc-enabled", opts.IPFIXRPCEnabled, "enable/disable RPC TCP IPFIX")
+	flag.IntVar(&opts.IPFIXPort, "ipfixtcp-port", opts.IPFIXPort, "IPFIX TCP port number")
+	flag.IntVar(&opts.IPFIXUDPSize, "ipfix-max-tco-size", opts.IPFIXUDPSize, "IPFIX maximum TCP size")
+	flag.IntVar(&opts.IPFIXWorkers, "ipfixtcp-workers", opts.IPFIXWorkers, "IPFIX TCP workers number")
 
 	// netflow version 9
 	flag.BoolVar(&opts.NetflowV9Enabled, "netflow9-enabled", opts.NetflowV9Enabled, "enable/disable netflow version 9 listener")
