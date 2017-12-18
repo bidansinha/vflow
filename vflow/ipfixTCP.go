@@ -33,9 +33,7 @@ import (
 	"fmt"
 	"log"
 	"github.com/bidansinha/vflow/producer"
-	"github.com/bidansinha/vflow/TCPServer"
-	//"encoding/binary"
-	//"github.com/kshvakov/clickhouse/lib/protocol"
+	"github.com/bidansinha/vflow/tcp_server"
 )
 
 // IPFIX represents IPFIX collector
@@ -99,56 +97,36 @@ func (i *IPFIXTCP) run() {
 	}
 
 	connectionString := fmt.Sprintf("%s:%d","0.0.0.0", i.port);
-	//connectionString := fmt.Sprintf("%s:%d","localhost", i.port);
-	server := tcp_server.New(connectionString);
-
+	
+ 	// TODO: Make the Options size accessable to TCP
+ 	//		 Thru the config `yaml:"ipfix-tcp-size"
+	server := tcp_server.New(connectionString, opts.IPFIXTCPSize); 
+	
 	server.OnNewClient(func(c *tcp_server.Client) {
 		// new client connected
 		// lets send some message
 		log.Println(c.Conn().RemoteAddr().String(), " open ");
-
 	})
-	server.OnNewMessage(func(c *tcp_server.Client, message string) {
-		// new message received
 
-		log.Println(c.Conn().RemoteAddr().String(), message);
+	server.OnNewMessage(func(c *tcp_server.Client, buf [] byte, size int) {
 		raddr, err := net.ResolveTCPAddr("tcp",c.Conn().RemoteAddr().String());
 		if err != nil {
 			log.Fatal(err)
 		}
+		log.Println("Incoming Size :", size)
+		b := ipfixBuffer.Get().([]byte)
 
-		arr := []byte(message)
-		ipfixTCPCh <- IPFIXTCPMsg{raddr, arr}
-
-	})
-
-	server.OnNewMessages(func(c *tcp_server.Client, buf [] byte, size int) {
-		log.Println("message for ", c.Conn().RemoteAddr().String(), buf);
-		raddr, err := net.ResolveTCPAddr("tcp",c.Conn().RemoteAddr().String());
-		if err != nil {
-			log.Fatal(err)
-		}
-		if(size <= 33)  {
-			c.Close()
-			return
-		}
-
-		ipfixTCPCh <- IPFIXTCPMsg{raddr, buf[34:]}
+		/***********************************************
+ 		 * Need to find a better way to avoid copying.
+		 **********************************************/
+		copy(b ,buf[:size])
+		atomic.AddUint64(&i.stats.TCPCount, 1)
+		ipfixTCPCh <- IPFIXTCPMsg{raddr,  b[:size]}
 	})
 
 	server.OnClientConnectionClosed(func(c *tcp_server.Client, err error) {
-		// connection with client lost
 		log.Println(c.Conn().RemoteAddr().String(), " closed ");
 	})
-
-
-	//protocol := &tcp.DefaultProtocol{}
-	//protocol.SetMaxPacketSize(10000)
-
-
-	//srv := tcp.NewAsyncTCPServer(connectionString, &callback{}, protocol)
-
-
 
 	atomic.AddInt32(&i.stats.Workers, int32(i.workers))
 	for n := 0; n < i.workers; n++ {
@@ -168,7 +146,6 @@ func (i *IPFIXTCP) run() {
 	})
 
 	//go mirrorIPFIXDispatcher(ipfixMCh)
-
 	go func() {
 		p := producer.NewProducer(opts.MQName)
 
@@ -179,7 +156,14 @@ func (i *IPFIXTCP) run() {
 		p.Topic = opts.IPFIXTopic
 
 		if err := p.Run(); err != nil {
-			logger.Fatal(err)
+			/****************************************************
+			 * TODO [bsinha] : Make a Option to selectively allow
+			 * Kafka. This will allow us to choose sampling data 
+			 * for the pipeline such that we only enable a few
+			 * servers to stream to Kafka, not all.
+			 ****************************************************/
+			logger.Println(err)
+			logger.Println("Continuing without producer.")
 		}
 	}()
 
@@ -225,7 +209,6 @@ func (i *IPFIXTCP) shutdown() {
 func (i *IPFIXTCP) ipfixTCPWorker (wQuit chan struct{}) {
 	var (
 		decodedMsg *ipfix.Message
-		mirror     IPFIXTCPMsg
 		msg        = IPFIXTCPMsg{body: ipfixTCPBuffer.Get().([]byte)}
 		buf        = new(bytes.Buffer)
 		err        error
@@ -235,7 +218,6 @@ func (i *IPFIXTCP) ipfixTCPWorker (wQuit chan struct{}) {
 
 LOOP:
 	for {
-
 		ipfixTCPBuffer.Put(msg.body[:opts.IPFIXTCPSize])
 		buf.Reset()
 
@@ -252,48 +234,44 @@ LOOP:
 			logger.Printf("rcvd ipfix data from: %s, size: %d bytes",
 				msg.raddr, len(msg.body))
 		}
-
-		fmt.Println(msg)
-
-		if ipfixTCPMirrorEnabled {
-			mirror.body = ipfixTCPBuffer.Get().([]byte)
-			mirror.raddr = msg.raddr
-			mirror.body = append(mirror.body[:0], msg.body...)
-
-			select {
-			case ipfixTCPMCh <- mirror:
-			default:
-			}
-		}
-
+		logger.Println("Message Body Size :",  len(msg.body))
+		//Mirroring option removed
 		d := ipfix.NewDecoder(msg.raddr.IP, msg.body)
 		if decodedMsg, err = d.Decode(mCache); err != nil {
 			logger.Println("Error 11 " ,err)
 			// in case ipfix message header couldn't decode
 			if decodedMsg == nil {
+				logger.Println("Could not be decoded.")
 				continue
 			}
 		}
 
 		atomic.AddUint64(&i.stats.DecodedCount, 1)
-
 		if len(decodedMsg.DataSets) > 0 {
-			b, err = decodedMsg.JSONMarshal(buf)
-			if err != nil {
-				logger.Println(err)
-				continue
-			}
+			logger.Println("Message contains Datasets.")
+		} else {
+			logger.Println("Message Does not contain Datasets.")
 
-			select {
-			case ipfixMQCh <- append([]byte{}, b...):
-			default:
-			}
+		}	
+		
+		b, err = decodedMsg.JSONMarshal(buf)
+		/**************************************
+		 * TODO [bsinha] Add a S3 Producer Here
+		 *************************************/
 
-			if opts.Verbose {
-				logger.Println(string(b))
-			}
+		if err != nil {
+			logger.Println(err)
+			continue
 		}
 
+		select {
+		case ipfixMQCh <- append([]byte{}, b...):
+		default:
+		}
+		logger.Println(string(b))
+		if opts.Verbose {
+			logger.Println(string(b))
+		}
 	}
 }
 

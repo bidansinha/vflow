@@ -113,7 +113,7 @@ func NewOptions() *Options {
 		CPUCap:     "100%",
 		Logger:     log.New(os.Stderr, "[vflow] ", log.Ldate|log.Ltime),
 
-		StatsEnabled:  true,
+		StatsEnabled:  false,//true,
 		StatsHTTPPort: "8081",
 		StatsHTTPAddr: "",
 
@@ -148,7 +148,7 @@ func NewOptions() *Options {
 		IPFIXTCPEnabled:       true,
 		IPFIXTCPRPCEnabled:    false,
 		IPFIXTCPPort:          4739,
-		IPFIXTCPSize:		1500,
+		IPFIXTCPSize:		   1500,
 		IPFIXTCPWorkers:       200,
 
 	}

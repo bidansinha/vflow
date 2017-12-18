@@ -113,12 +113,10 @@ func statsHTTPServer(ipfix *IPFIX, sflow *SFlow, netflow9 *NetflowV9) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/sys", StatsSysHandler)
 	mux.HandleFunc("/flow", StatsFlowHandler(ipfix, sflow, netflow9))
-
 	addr := net.JoinHostPort(opts.StatsHTTPAddr, opts.StatsHTTPPort)
 
 	logger.Println("starting stats web server ...")
-	err := http.ListenAndServe(addr, mux)
-	if err != nil {
+	if err := http.ListenAndServe(addr, mux); err != nil {
 		logger.Fatal(err)
 	}
 }

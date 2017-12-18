@@ -131,7 +131,8 @@ func (i *IPFIX) run() {
 		p.Topic = opts.IPFIXTopic
 
 		if err := p.Run(); err != nil {
-			logger.Fatal(err)
+			//logger.Fatal(err)
+			logger.Println("Kafka not available")
 		}
 	}()
 
@@ -209,7 +210,7 @@ LOOP:
 			logger.Printf("rcvd ipfix data from: %s, size: %d bytes",
 				msg.raddr, len(msg.body))
 		}
-
+		logger.Println("Message Body Size :",  len(msg.body))
 		if ipfixMirrorEnabled {
 			mirror.body = ipfixBuffer.Get().([]byte)
 			mirror.raddr = msg.raddr
@@ -223,16 +224,18 @@ LOOP:
 
 		d := ipfix.NewDecoder(msg.raddr.IP, msg.body)
 		if decodedMsg, err = d.Decode(mCache); err != nil {
-			logger.Println(err)
+			//logger.Println(err)
 			// in case ipfix message header couldn't decode
 			if decodedMsg == nil {
 				continue
 			}
 		}
 
+		//logger.Printf(decodedMsg)
 		atomic.AddUint64(&i.stats.DecodedCount, 1)
-
+		logger.Printf("decodedMsg1")
 		if len(decodedMsg.DataSets) > 0 {
+			logger.Printf("decodedMsg2")
 			b, err = decodedMsg.JSONMarshal(buf)
 			if err != nil {
 				logger.Println(err)
@@ -247,6 +250,7 @@ LOOP:
 			if opts.Verbose {
 				logger.Println(string(b))
 			}
+			logger.Println(string(b))
 		}
 
 	}
