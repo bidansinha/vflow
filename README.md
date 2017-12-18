@@ -50,14 +50,9 @@ The IPFIX data decodes to JSON format and IDs are [IANA IPFIX element ID](http:/
 Given that the Go Language compiler (version 1.8 preferred) is installed, you can build it with:
 ```
 
-cd $GOPATH/src/
-mkdir https://github.com
-mkdir https://github.com/bidansinha
-cd github.com/bidansinha
-git clone https://github.com/bidansinha/vflow.git
-
+cd $GOPATH/src/github.com/bidansinha/vflow
 make build
-cd vflow; go build 
+
 ```
 ## Installation
 You can download and install pre-built debian package as below ([RPM and Linux binary are available](https://github.com/VerizonDigital/vflow/releases/tag/v0.4.1)). 
