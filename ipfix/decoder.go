@@ -181,7 +181,6 @@ func (d *Decoder) decodeSet(mem MemCache, msg *Message) error {
 	for err == nil && setHeader.Length > uint16(d.reader.ReadCount()-startCount) && d.reader.Len() > 4 {
 		if setId := setHeader.SetID; setId == 2 || setId == 3 {
 			// Template record or template option record
-
 			// Check if only padding is left in this set. A template id of zero indicates padding bytes, which MUST be zero.
 			templateId, err := d.reader.PeekUint16()
 			if err == nil && templateId == 0 {
@@ -200,7 +199,12 @@ func (d *Decoder) decodeSet(mem MemCache, msg *Message) error {
 		} else if setId >= 4 && setId <= 255 {
 			// Reserved set, do not read any records
 			break
-		} else {
+		} else if setId < 4 {
+			// Check to prevent any error in seriallization
+			// that could create infinite memory allocation
+			// thru the append statement in th else block below.
+			break
+		}else {
 			// Data set
 			var data []DecodedField
 			data, err = d.decodeData(tr)
@@ -476,7 +480,6 @@ func (d *Decoder) decodeData(tr TemplateRecord) ([]DecodedField, error) {
 		b      []byte
 	)
 	r := d.reader
-
 	for i := 0; i < len(tr.FieldSpecifiers); i++ {
 		b, err = r.Read(int(tr.FieldSpecifiers[i].Length))
 		if err != nil {
@@ -498,7 +501,6 @@ func (d *Decoder) decodeData(tr TemplateRecord) ([]DecodedField, error) {
 			Value: Interpret(&b, m.Type),
 		})
 	}
-
 	for i := 0; i < len(tr.ScopeFieldSpecifiers); i++ {
 		b, err = r.Read(int(tr.ScopeFieldSpecifiers[i].Length))
 		if err != nil {

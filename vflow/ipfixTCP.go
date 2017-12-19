@@ -167,6 +167,35 @@ func (i *IPFIXTCP) run() {
 		}
 	}()
 
+	go func() {
+		
+		var (
+			msg []byte
+			ok	bool
+			)
+
+		for {
+			msg, ok = <-ipfixMQCh
+			if !ok {
+				break
+			}
+			logger.Println("S3 Write Block:", string(msg))
+
+			/*fileout, err := os.Create("output.txt")
+			if err != nil {
+		        log.Fatal(err)
+		    
+		    n = len(msg)
+		    if _, err := fo.Write(msg[:n]); err != nil {
+            	log.Fatal(err)
+        	}
+
+        	if err := fo.Close(); err != nil {
+	            log.Fatal(err)
+	        }*/
+		}
+	}()
+
 	// External IP Source IP/ dump
 	go func() {
 		if !opts.DynWorkers {
@@ -268,7 +297,7 @@ LOOP:
 		case ipfixMQCh <- append([]byte{}, b...):
 		default:
 		}
-		logger.Println(string(b))
+		//logger.Println(string(b))
 		if opts.Verbose {
 			logger.Println(string(b))
 		}

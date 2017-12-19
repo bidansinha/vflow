@@ -51,6 +51,7 @@ func NewProducer(mqName string) *Producer {
 		"kafka": new(Kafka),
 		"nsq":   new(NSQ),
 		"nats":  new(NATS),
+	//	"s3" : new(S3),
 	}
 
 	return &Producer{

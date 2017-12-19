@@ -30,6 +30,7 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
+	"github.com/pkg/profile"
 )
 
 var (
@@ -47,6 +48,8 @@ func main() {
 		wg       sync.WaitGroup
 		signalCh = make(chan os.Signal, 1)
 	)
+	
+	p := profile.Start(profile.MemProfile, profile.ProfilePath("."), profile.NoShutdownHook)
 
 	opts = GetOptions()
 	runtime.GOMAXPROCS(opts.GetCPU())
@@ -79,6 +82,9 @@ func main() {
 			p.shutdown()
 		}(p)
 	}
+	
+	//Profiler Stop
+	p.Stop()
 
 	wg.Wait()
 }
